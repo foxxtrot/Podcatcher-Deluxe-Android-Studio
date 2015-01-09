@@ -26,6 +26,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.widget.SeekBar;
 
+import com.google.android.gms.cast.MediaStatus;
 import com.podcatcher.deluxe.listeners.OnChangeEpisodeStateListener;
 import com.podcatcher.deluxe.listeners.OnChangePlaylistListener;
 import com.podcatcher.deluxe.listeners.OnDownloadEpisodeListener;
@@ -52,7 +53,7 @@ import static com.podcatcher.deluxe.view.fragments.DeleteDownloadsConfirmationFr
  * only consisting of an episode view and the player. Sub-classes could extend
  * or simply show this layout.
  */
-public abstract class EpisodeActivity extends BaseActivity implements
+public abstract class EpisodeActivity extends CastActivity implements
         PlayerListener, PlayServiceListener, OnSelectEpisodeListener, OnDownloadEpisodeListener,
         OnEpisodeInformationChangedListener, OnChangePlaylistListener, OnChangeEpisodeStateListener,
         OnRequestFullscreenListener {
@@ -235,7 +236,9 @@ public abstract class EpisodeActivity extends BaseActivity implements
 
     @Override
     public void onReturnToPlayingEpisode() {
-        if (service != null && service.getCurrentEpisode() != null)
+        if (casting && castingEpisode != null)
+            onEpisodeSelected(castingEpisode);
+        else if (service != null && service.getCurrentEpisode() != null)
             onEpisodeSelected(service.getCurrentEpisode());
     }
 
@@ -332,12 +335,17 @@ public abstract class EpisodeActivity extends BaseActivity implements
         // Stop timer task
         stopPlayerUpdater();
 
-        // Stop called: unload episode
-        if (service.isLoadedEpisode(selection.getEpisode()))
-            service.reset();
+        if (casting) {
+            play(selection.getEpisode());
+            startPlayerUpdater();
+        } else {
+            // Stop called: unload episode
+            if (service.isLoadedEpisode(selection.getEpisode()))
+                service.reset();
             // Play called on unloaded episode
-        else if (selection.isEpisodeSet())
-            service.playEpisode(selection.getEpisode());
+            else if (selection.isEpisodeSet())
+                service.playEpisode(selection.getEpisode());
+        }
 
         // Update UI
         updatePlayerUi();
@@ -346,14 +354,19 @@ public abstract class EpisodeActivity extends BaseActivity implements
 
     @Override
     public void onTogglePlay() {
-        // Player is playing
-        if (service.isPlaying()) {
-            service.pause();
-            stopPlayerUpdater();
-        } // Player in pause
-        else {
-            service.resume();
+        if (casting) {
+            togglePlay();
             startPlayerUpdater();
+        } else {
+            // Player is playing
+            if (service.isPlaying()) {
+                service.pause();
+                stopPlayerUpdater();
+            } // Player in pause
+            else {
+                service.resume();
+                startPlayerUpdater();
+            }
         }
 
         updatePlayerUi();
@@ -367,7 +380,10 @@ public abstract class EpisodeActivity extends BaseActivity implements
 
     @Override
     public void onRewind() {
-        if (service != null && service.isPrepared()) {
+        if (casting) {
+            castPlayer.seek(apiClient, castPlayer.getApproximateStreamPosition() - 10000);
+            updatePlayerUi();
+        } else if (service != null && service.isPrepared()) {
             service.rewind();
 
             updatePlayerUi();
@@ -376,7 +392,10 @@ public abstract class EpisodeActivity extends BaseActivity implements
 
     @Override
     public void onFastForward() {
-        if (service != null && service.isPrepared()) {
+        if (casting) {
+            castPlayer.seek(apiClient, castPlayer.getApproximateStreamPosition() + 10000);
+            updatePlayerUi();
+        } else if (service != null && service.isPrepared()) {
             service.fastForward();
 
             updatePlayerUi();
@@ -408,7 +427,11 @@ public abstract class EpisodeActivity extends BaseActivity implements
     @Override
     public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
         if (fromUser) {
-            service.seekTo(progress);
+            if (casting)
+                castPlayer.seek(apiClient, progress);
+            else
+                service.seekTo(progress);
+
             updatePlayerUi();
         }
     }
@@ -529,28 +552,54 @@ public abstract class EpisodeActivity extends BaseActivity implements
      * Update the player fragment UI to reflect current state of play.
      */
     protected void updatePlayerUi() {
-        // Even though all the fragments should be present, the service might
-        // not have been connected to yet.
-        if (service != null) {
-            final boolean currentEpisodeIsShowing = service.isLoadedEpisode(selection.getEpisode());
+        try {
+            // Determine the state of play
+            boolean currentEpisodeIsShowing = false;
+            boolean showVideo = false;
+            boolean showPlayer = false;
 
-            // Show/hide menu item
+            if (casting) {
+                currentEpisodeIsShowing = castingEpisode != null && castingEpisode.equals(selection.getEpisode());
+                showVideo = false;
+                showPlayer = castStatus.getPlayerState() != MediaStatus.PLAYER_STATE_IDLE;
+            } else {
+                currentEpisodeIsShowing = service.isLoadedEpisode(selection.getEpisode());
+                showVideo = service.isPrepared() && service.isVideo() && currentEpisodeIsShowing;
+                showPlayer = service.isPreparing() || service.isPrepared();
+            }
+
+            // Update the player UI depending on the state
             playerFragment.setLoadMenuItemVisibility(selection.isEpisodeSet(),
                     !currentEpisodeIsShowing, !currentEpisodeIsShowing
                             && episodeManager.getResumeAt(selection.getEpisode()) > 0);
-
-            // Show/hide video output
-            final boolean showVideo = service.isPrepared() && service.isVideo()
-                    && currentEpisodeIsShowing;
-            if (episodeFragment != null)
-                episodeFragment.setShowVideoView(showVideo, showVideo
-                        && (view.isSmallLandscape() || view.isLargePortrait()));
-
-            // Make sure player is shown if and as needed (update the details
-            // only if they are actually visible)
-            final boolean showPlayer = service.isPreparing() || service.isPrepared();
+            episodeFragment.setShowVideoView(showVideo, showVideo
+                    && (view.isSmallLandscape() || view.isLargePortrait()));
             playerFragment.setPlayerVisibility(showPlayer);
+
             if (showPlayer) {
+                Episode playedEpisode;
+                boolean showNext = false;
+                int duration = 0;
+                int position = 0;
+                boolean buffering = false;
+                boolean playing = false;
+
+                if (casting) {
+                    playedEpisode = castingEpisode;
+                    showNext = !episodeManager.isPlaylistEmptyBesides(castingEpisode);
+                    duration = (int) castInfo.getStreamDuration();
+                    position = (int) castPlayer.getApproximateStreamPosition();
+                    buffering = castStatus.getPlayerState() == MediaStatus.PLAYER_STATE_BUFFERING;
+                    playing = castStatus.getPlayerState() == MediaStatus.PLAYER_STATE_PLAYING;
+                } else {
+                    playedEpisode = service.getCurrentEpisode();
+                    showNext = !episodeManager.isPlaylistEmptyBesides(service.getCurrentEpisode());
+                    duration = service.getDuration();
+                    position = service.getCurrentPosition();
+                    buffering = service.isPreparing();
+                    playing = service.isPlaying();
+                }
+
                 // Make sure error view is hidden
                 playerFragment.setErrorViewVisibility(false);
                 // Show(hide episode title and seek bar
@@ -559,23 +608,21 @@ public abstract class EpisodeActivity extends BaseActivity implements
                 playerFragment.setPlayerSeekbarVisibility(!view.isSmallLandscape());
                 playerFragment.setShowShortPosition(view.isSmall());
                 // Enable/disable next button
-                playerFragment.setNextButtonVisibility(!view.isSmall() &&
-                        !episodeManager.isPlaylistEmptyBesides(service.getCurrentEpisode()));
-
+                playerFragment.setNextButtonVisibility(!view.isSmall() && showNext);
                 // Update UI to reflect service status
-                playerFragment.updatePlayerTitle(service.getCurrentEpisode());
-                playerFragment.updateSeekBar(!service.isPreparing(), service.getDuration(),
-                        service.getCurrentPosition());
-                playerFragment.updateButton(service.isBuffering(), service.isPlaying(),
-                        service.getDuration(), service.getCurrentPosition());
+                playerFragment.updatePlayerTitle(playedEpisode);
+                playerFragment.updateSeekBar(!buffering, duration, position);
+                playerFragment.updateButton(buffering, playing, duration, position);
             }
+        } catch (NullPointerException npe) {
+            // pass
         }
     }
 
     private void startPlayerUpdater() {
         // Do not start the task if there is no progress to monitor and we are
         // visible (this fixes the case of stacked activities running the handler)
-        if (visible && service != null && service.isPlaying()) {
+        if (visible && (service != null && service.isPlaying()) || casting) {
             // Remove existing runnables to make sure only one runs at any given time
             playerUpdateHandler.removeCallbacks(playerUpdater);
             playerUpdateHandler.post(playerUpdater);

@@ -116,15 +116,15 @@ public class AddPodcastFragment extends DialogFragment {
             }
         });
 
-        // Put the URI given in the intent if any
         if (getActivity().getIntent().getData() != null)
+            // Put the URI given in the intent if any
             podcastUrlEditText.setText(getActivity().getIntent().getDataString());
-            // This is for testing only
         else if (BuildConfig.DEBUG)
-            podcastUrlEditText.setText("https://www.theskepticsguide.org/premium");
+            // This is for testing only
+            podcastUrlEditText.setText("http://podcastfeeds.nbcnews.com/audio/podcast/MSNBC-MADDOW-NETCAST-M4V.xml");
+        else
             // This checks for a potential podcast URL in the clipboard
             // and presets it in the text field if available
-        else
             checkClipboardForPodcastUrl();
 
         progressView = (HorizontalProgressView) view.findViewById(R.id.add_podcast_progress);

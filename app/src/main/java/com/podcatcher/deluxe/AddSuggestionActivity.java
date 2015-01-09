@@ -17,12 +17,14 @@
 
 package com.podcatcher.deluxe;
 
+import android.app.Activity;
 import android.app.DialogFragment;
 import android.content.DialogInterface;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 
 import com.podcatcher.deluxe.listeners.OnLoadSuggestionListener;
+import com.podcatcher.deluxe.model.PodcastManager;
 import com.podcatcher.deluxe.model.SuggestionManager;
 import com.podcatcher.deluxe.model.types.Progress;
 import com.podcatcher.deluxe.model.types.Suggestion;
@@ -37,7 +39,7 @@ import java.util.List;
 /**
  * Add podcast from suggestions activity.
  */
-public class AddSuggestionActivity extends BaseActivity implements AddSuggestionDialogListener,
+public class AddSuggestionActivity extends Activity implements AddSuggestionDialogListener,
         ConfirmExplicitSuggestionDialogListener, OnLoadSuggestionListener {
 
     /**
@@ -52,10 +54,15 @@ public class AddSuggestionActivity extends BaseActivity implements AddSuggestion
      * Key to find "podcast to be confirmed" name under
      */
     private static final String TO_BE_CONFIRMED_NAME_KEY = "TO_BE_CONFIRMED_NAME_KEY";
+
+    /**
+     * Our podcast manager handle
+     */
+    private PodcastManager podcastManager = PodcastManager.getInstance();
     /**
      * The suggestion manager handle
      */
-    private SuggestionManager suggestionManager;
+    private SuggestionManager suggestionManager = SuggestionManager.getInstance();
     /**
      * The fragment containing the add suggestion UI
      */
@@ -87,8 +94,7 @@ public class AddSuggestionActivity extends BaseActivity implements AddSuggestion
                         savedInstanceState.getString(TO_BE_CONFIRMED_URL_KEY));
         }
 
-        // Get suggestions manager and register call-back
-        suggestionManager = SuggestionManager.getInstance();
+        // Register call-back
         suggestionManager.addLoadSuggestionListListener(this);
     }
 

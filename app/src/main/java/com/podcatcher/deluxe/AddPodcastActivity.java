@@ -17,6 +17,7 @@
 
 package com.podcatcher.deluxe;
 
+import android.app.Activity;
 import android.app.DialogFragment;
 import android.content.DialogInterface;
 import android.content.Intent;
@@ -24,6 +25,7 @@ import android.os.Bundle;
 import android.support.annotation.NonNull;
 
 import com.podcatcher.deluxe.listeners.OnLoadPodcastListener;
+import com.podcatcher.deluxe.model.PodcastManager;
 import com.podcatcher.deluxe.model.tasks.remote.LoadPodcastTask.PodcastLoadError;
 import com.podcatcher.deluxe.model.types.Podcast;
 import com.podcatcher.deluxe.model.types.Progress;
@@ -40,7 +42,7 @@ import static com.podcatcher.deluxe.view.fragments.AuthorizationFragment.USERNAM
  * preset the feed url edittext, start this activity with an intent that has the
  * feed URL set as its {@link Intent#getData()} return value.
  */
-public class AddPodcastActivity extends BaseActivity implements AddPodcastDialogListener,
+public class AddPodcastActivity extends Activity implements AddPodcastDialogListener,
         OnLoadPodcastListener, OnEnterAuthorizationListener {
 
     /**
@@ -67,6 +69,9 @@ public class AddPodcastActivity extends BaseActivity implements AddPodcastDialog
      * The last user name that was put in
      */
     private String lastUserName;
+
+    /** Our podcast manager handle */
+    private PodcastManager podcastManager = PodcastManager.getInstance();
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -122,7 +127,7 @@ public class AddPodcastActivity extends BaseActivity implements AddPodcastDialog
         // If the podcast is present, select it
         if (podcastManager.contains(newPodcast)) {
             Intent intent = new Intent(this, PodcastActivity.class);
-            intent.putExtra(EpisodeListActivity.MODE_KEY, ContentMode.SINGLE_PODCAST);
+            intent.putExtra(EpisodeListActivity.MODE_KEY, BaseActivity.ContentMode.SINGLE_PODCAST);
             intent.putExtra(PODCAST_URL_KEY, newPodcast.getUrl());
             intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP |
                     Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
